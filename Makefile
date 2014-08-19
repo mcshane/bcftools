@@ -1,4 +1,28 @@
-PROG=		bcftools
+# Makefile for bcftools, utilities for Variant Call Format VCF/BCF files.
+#
+#   Copyright (C) 2012-2014 Genome Research Ltd.
+#
+#   Author: Petr Danecek <pd3@sanger.ac.uk>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+# DEALINGS IN THE SOFTWARE.
+
+PROG=       bcftools
 TEST_PROG=  test/test-rbuf
 
 
@@ -8,16 +32,19 @@ all: $(PROG) $(TEST_PROG)
 HTSDIR = ../htslib
 include $(HTSDIR)/htslib.mk
 HTSLIB = $(HTSDIR)/libhts.a
+BGZIP  = $(HTSDIR)/bgzip
+TABIX  = $(HTSDIR)/tabix
 
-CC=			gcc
-CFLAGS=		-g -Wall -Wc++-compat -O2
-DFLAGS=
-OBJS=		main.o vcfindex.o tabix.o \
-			vcfstats.o vcfisec.o vcfmerge.o vcfquery.o vcffilter.o filter.o vcfsom.o \
-            vcfnorm.o vcfgtcheck.o vcfview.o vcfannotate.o vcfroh.o vcfconcat.o \
-            vcfcall.o mcall.o vcmp.o gvcf.o reheader.o vcfvalidate.o \
-            ccall.o em.o prob1.o kmin.o # the original samtools calling
-INCLUDES=	-I. -I$(HTSDIR)
+CC       = gcc
+CFLAGS   = -g -Wall -Wc++-compat -O2
+DFLAGS   =
+OBJS     = main.o vcfindex.o tabix.o \
+           vcfstats.o vcfisec.o vcfmerge.o vcfquery.o vcffilter.o filter.o vcfsom.o \
+           vcfnorm.o vcfgtcheck.o vcfview.o vcfannotate.o vcfroh.o vcfconcat.o \
+           vcfcall.o mcall.o vcmp.o gvcf.o reheader.o convert.o vcfconvert.o \
+           vcfvalidate.o \
+           ccall.o em.o prob1.o kmin.o # the original samtools calling
+INCLUDES = -I. -I$(HTSDIR)
 
 prefix      = /usr/local
 exec_prefix = $(prefix)
@@ -25,15 +52,17 @@ bindir      = $(exec_prefix)/bin
 mandir      = $(prefix)/share/man
 man1dir     = $(mandir)/man1
 
+MKDIR_P = mkdir -p
 INSTALL = install -p
 INSTALL_PROGRAM = $(INSTALL)
 INSTALL_DATA    = $(INSTALL) -m 644
+INSTALL_DIR     = $(MKDIR_P) -m 755
 
 
 all:$(PROG) plugins
 
 # See htslib/Makefile
-PACKAGE_VERSION  = 0.0.1
+PACKAGE_VERSION = 1.0
 ifneq "$(wildcard .git)" ""
 PACKAGE_VERSION := $(shell git describe --always --dirty)
 version.h: $(if $(wildcard version.h),$(if $(findstring "$(PACKAGE_VERSION)",$(shell cat version.h)),,force))
@@ -48,10 +77,10 @@ version.h:
 force:
 
 .c.o:
-		$(CC) -c $(CFLAGS) $(DFLAGS) $(INCLUDES) $< -o $@
+	$(CC) -c $(CFLAGS) $(DFLAGS) $(INCLUDES) $< -o $@
 
-test: $(PROG) plugins test/test-rbuf
-		./test/test.pl
+test: $(PROG) plugins test/test-rbuf $(BGZIP) $(TABIX)
+	./test/test.pl --exec bgzip=$(BGZIP) --exec tabix=$(TABIX)
 
 PLUGINC = $(foreach dir, plugins, $(wildcard $(dir)/*.c))
 PLUGINS = $(PLUGINC:.c=.so)
@@ -76,7 +105,8 @@ vcfindex.o: vcfindex.c $(htslib_vcf_h) $(htslib_tbx_h)
 vcfisec.o: vcfisec.c $(htslib_vcf_h) $(htslib_synced_bcf_reader_h) $(htslib_vcfutils_h) $(bcftools_h)
 vcfmerge.o: vcfmerge.c $(htslib_vcf_h) $(htslib_synced_bcf_reader_h) $(htslib_vcfutils_h) $(bcftools_h) vcmp.h $(HTSDIR)/htslib/khash.h
 vcfnorm.o: vcfnorm.c $(htslib_vcf_h) $(htslib_synced_bcf_reader_h) $(htslib_faidx_h) $(bcftools_h) rbuf.h
-vcfquery.o: vcfquery.c $(htslib_vcf_h) $(htslib_synced_bcf_reader_h) $(htslib_vcfutils_h) $(bcftools_h) $(filter_h)
+vcfquery.o: convert.o vcfquery.c $(htslib_vcf_h) $(htslib_synced_bcf_reader_h) $(htslib_vcfutils_h) $(bcftools_h) $(filter_h)
+vcfconvert.o: convert.o vcfconvert.c $(htslib_vcf_h) $(htslib_synced_bcf_reader_h) $(htslib_vcfutils_h) $(bcftools_h) $(filter_h)
 vcfroh.o: vcfroh.c $(htslib_vcf_h) $(htslib_synced_bcf_reader_h) $(HTSDIR)/htslib/kstring.h $(HTSDIR)/htslib/kseq.h $(bcftools_h) rbuf.h
 vcfsom.o: vcfsom.c $(htslib_vcf_h) $(htslib_synced_bcf_reader_h) $(htslib_vcfutils_h) $(bcftools_h)
 vcfstats.o: vcfstats.c $(htslib_vcf_h) $(htslib_synced_bcf_reader_h) $(htslib_vcfutils_h) $(htslib_faidx_h) $(bcftools_h)
@@ -95,23 +125,23 @@ vcmp.o: vcmp.c $(htslib_hts_h) vcmp.h
 test/test-rbuf.o: test/test-rbuf.c rbuf.h
 
 test/test-rbuf: test/test-rbuf.o
-		$(CC) $(CFLAGS) -o $@ -lm -ldl $<
+	$(CC) $(CFLAGS) -o $@ -lm -ldl $<
 
 bcftools: $(HTSLIB) $(OBJS)
-		$(CC) $(CFLAGS) -o $@ $(OBJS) $(HTSLIB) -lpthread -lz -lm -ldl
+	$(CC) $(CFLAGS) -o $@ $(OBJS) $(HTSLIB) -lpthread -lz -lm -ldl
 
 bcftools.1: bcftools.txt
-		a2x --doctype manpage --format manpage bcftools.txt
+	a2x --doctype manpage --format manpage bcftools.txt
 
 bcftools.html: bcftools.txt
-		a2x --doctype manpage --format xhtml bcftools.txt
+	a2x --doctype manpage --format xhtml bcftools.txt
 
 docs: bcftools.html bcftools.1
 
 install: $(PROG)
-		mkdir -p $(DESTDIR)$(bindir) $(DESTDIR)$(man1dir)
-		$(INSTALL_PROGRAM) $(PROG) plot-vcfstats vcfutils.pl $(DESTDIR)$(bindir)
-		$(INSTALL_DATA) bcftools.1 $(DESTDIR)$(man1dir)
+	$(INSTALL_DIR) $(DESTDIR)$(bindir) $(DESTDIR)$(man1dir)
+	$(INSTALL_PROGRAM) $(PROG) plot-vcfstats vcfutils.pl $(DESTDIR)$(bindir)
+	$(INSTALL_DATA) bcftools.1 $(DESTDIR)$(man1dir)
 
 clean: testclean
 	-rm -f gmon.out *.o *~ $(PROG) version.h plugins/*.so
