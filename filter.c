@@ -695,25 +695,25 @@ static void set_avg(filter_t *flt, bcf1_t *line, token_t *tok)
     tok->nvalues   = 1;
     tok->nsamples  = 0;
 }
-static void set_sum(filter_t *flt, bcf1_t *line, token_t *tok) 
-{ 
+static void set_sum(filter_t *flt, bcf1_t *line, token_t *tok)
+{
     float val = 0;
     int i, n = 0;
-    for (i=0; i<tok->nvalues; i++) 
+    for (i=0; i<tok->nvalues; i++)
         if ( !bcf_float_is_missing(tok->values[i]) ) { val += tok->values[i]; n++; }
     tok->values[0] = val;
     tok->nvalues   = 1;
     tok->nsamples  = 0;
 }
-static void set_abs(filter_t *flt, bcf1_t *line, token_t *tok) 
-{ 
+static void set_abs(filter_t *flt, bcf1_t *line, token_t *tok)
+{
     if ( tok->is_str ) error("ABS() can be applied only on numeric values\n");
     int i;
-    for (i=0; i<tok->nvalues; i++) 
+    for (i=0; i<tok->nvalues; i++)
         tok->values[i] = fabs(tok->values[i]);
 }
-static void set_strlen(filter_t *flt, bcf1_t *line, token_t *tok) 
-{ 
+static void set_strlen(filter_t *flt, bcf1_t *line, token_t *tok)
+{
     tok->is_str = 0;
     if ( !tok->nvalues ) return;
     if ( tok->idx==-2 )

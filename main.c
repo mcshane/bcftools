@@ -94,8 +94,8 @@ static cmd_t cmds[] =
       .alias = "concat",
       .help  = "concatenate VCF/BCF files from the same set of samples"
     },
-    { .func  = main_vcfconvert,  
-      .alias = "convert", 
+    { .func  = main_vcfconvert,
+      .alias = "convert",
       .help  = "convert VCF/BCF files to different formats and back"
     },
     { .func  = main_vcfisec,

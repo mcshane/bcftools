@@ -1304,7 +1304,7 @@ not "dp" instead of "DP".
 
 --
     MIN(DV)>5
-                
+
     MIN(DV/DP)>0.3
 
     MIN(DP)>10 & MIN(DV)>3

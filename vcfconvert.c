@@ -1,27 +1,26 @@
-/* The MIT License
+/*  vcfconvert.c -- convert between VCF/BCF and related formats.
 
-   Copyright (c) 2013-2014 Genome Research Ltd.
-   Authors:  see http://github.com/samtools/bcftools/blob/master/AUTHORS
+    Copyright (C) 2013-2014 Genome Research Ltd.
 
-   Permission is hereby granted, free of charge, to any person obtaining a copy
-   of this software and associated documentation files (the "Software"), to deal
-   in the Software without restriction, including without limitation the rights
-   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-   copies of the Software, and to permit persons to whom the Software is
-   furnished to do so, subject to the following conditions:
+    Author: Petr Danecek <pd3@sanger.ac.uk>
 
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-   THE SOFTWARE.
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
 
- */
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.  */
 
 #include <stdio.h>
 #include <unistd.h>
@@ -103,11 +102,11 @@ static void open_vcf(args_t *args, const char *format_str)
             int n;
             char **smpls = hts_readlist(args->sample_list, args->sample_is_file, &n);
             if ( !smpls ) error("Could not parse %s\n", args->sample_list);
-            if ( n!=bcf_hdr_nsamples(args->files->readers[0].header) ) 
+            if ( n!=bcf_hdr_nsamples(args->files->readers[0].header) )
                 error("The number of samples does not match, perhaps some are present multiple times?\n");
             nsamples = bcf_hdr_nsamples(args->files->readers[0].header);
             samples = (int*) malloc(sizeof(int)*nsamples);
-            for (i=0; i<n; i++) 
+            for (i=0; i<n; i++)
             {
                 samples[i] = bcf_hdr_id2int(args->files->readers[0].header, BCF_DT_SAMPLE,smpls[i]);
                 free(smpls[i]);
@@ -231,7 +230,7 @@ int main_vcfconvert(int argc, char *argv[])
     args_t *args = (args_t*) calloc(1,sizeof(args_t));
     args->argc   = argc; args->argv = argv;
 
-    static struct option loptions[] = 
+    static struct option loptions[] =
     {
         {"help",0,0,'h'},
         {"include",1,0,'i'},
@@ -259,7 +258,7 @@ int main_vcfconvert(int argc, char *argv[])
             case 'S': args->sample_list = optarg; args->sample_is_file = 1; break;
             case 'g': args->convert_func = vcf_to_gensample; args->outfname = optarg; break;
             case  1 : args->tag = optarg; break;
-            case 'h': 
+            case 'h':
             case '?': usage();
             default: error("Unknown argument: %s\n", optarg);
         }
@@ -274,7 +273,7 @@ int main_vcfconvert(int argc, char *argv[])
     if ( !args->infname || !args->convert_func ) usage();
 
     args->convert_func(args);
-    
+
     destroy_data(args);
     free(args);
     return 0;

@@ -1,27 +1,26 @@
-/* The MIT License
+/*  convert.c -- functions for converting between VCF/BCF and related formats.
 
-   Copyright (c) 2013-2014 Genome Research Ltd.
-   Authors:  see http://github.com/samtools/bcftools/blob/master/AUTHORS
+    Copyright (C) 2013-2014 Genome Research Ltd.
 
-   Permission is hereby granted, free of charge, to any person obtaining a copy
-   of this software and associated documentation files (the "Software"), to deal
-   in the Software without restriction, including without limitation the rights
-   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-   copies of the Software, and to permit persons to whom the Software is
-   furnished to do so, subject to the following conditions:
+    Author: Petr Danecek <pd3@sanger.ac.uk>
 
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-   THE SOFTWARE.
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
 
- */
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.  */
 
 #include <stdio.h>
 #include <unistd.h>
@@ -60,8 +59,6 @@
 #define T_PL_TO_PROB3  20   // not publicly advertised
 #define T_FIRST_ALT    21   // not publicly advertised
 
-typedef struct _convert_t convert_t;
-
 typedef struct _fmt_t
 {
     int type, id, is_gt_field, ready, subscript;
@@ -90,8 +87,8 @@ static void process_chrom(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isam
 static void process_pos(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isample, kstring_t *str) { kputw(line->pos+1, str); }
 static void process_id(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isample, kstring_t *str) { kputs(line->d.id, str); }
 static void process_ref(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isample, kstring_t *str) { kputs(line->d.allele[0], str); }
-static void process_alt(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isample, kstring_t *str) 
-{ 
+static void process_alt(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isample, kstring_t *str)
+{
     int i;
     if ( line->n_allele==1 )
     {
@@ -101,32 +98,32 @@ static void process_alt(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isampl
     for (i=1; i<line->n_allele; i++)
     {
         if ( i>1 ) kputc(',', str);
-        kputs(line->d.allele[i], str); 
+        kputs(line->d.allele[i], str);
     }
 }
-static void process_first_alt(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isample, kstring_t *str) 
-{ 
+static void process_first_alt(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isample, kstring_t *str)
+{
     if ( line->n_allele==1 )
         kputc('.', str);
     else
-        kputs(line->d.allele[1], str); 
+        kputs(line->d.allele[1], str);
 }
-static void process_qual(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isample, kstring_t *str) 
-{  
+static void process_qual(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isample, kstring_t *str)
+{
     if ( bcf_float_is_missing(line->qual) ) kputc('.', str);
     else ksprintf(str, "%g", line->qual);
 }
-static void process_filter(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isample, kstring_t *str) 
-{ 
+static void process_filter(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isample, kstring_t *str)
+{
     int i;
-    if ( line->d.n_flt ) 
+    if ( line->d.n_flt )
     {
-        for (i=0; i<line->d.n_flt; i++) 
+        for (i=0; i<line->d.n_flt; i++)
         {
             if (i) kputc(';', str);
             kputs(convert->header->id[BCF_DT_ID][line->d.flt[i]].key, str);
         }
-    } 
+    }
     else kputc('.', str);
 }
 static inline int bcf_array_ivalue(void *bcf_array, int type, int idx)
@@ -135,7 +132,7 @@ static inline int bcf_array_ivalue(void *bcf_array, int type, int idx)
     if ( type==BCF_BT_INT16 ) return ((int16_t*)bcf_array)[idx];
     return ((int32_t*)bcf_array)[idx];
 }
-static void process_info(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isample, kstring_t *str) 
+static void process_info(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isample, kstring_t *str)
 {
     int i;
     for (i=0; i<line->n_info; i++)
@@ -165,7 +162,7 @@ static void process_info(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isamp
     }
     else if ( fmt->subscript >=0 )
     {
-        if ( info->len <= fmt->subscript ) 
+        if ( info->len <= fmt->subscript )
         {
             kputc('.', str);
             return;
@@ -174,7 +171,7 @@ static void process_info(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isamp
         else if ( info->type != BCF_BT_CHAR ) kputw(bcf_array_ivalue(info->vptr,info->type,fmt->subscript), str);
         else error("TODO: %s:%d .. info->type=%d\n", __FILE__,__LINE__, info->type);
     }
-    else 
+    else
         bcf_fmt_array(str, info->len, info->type, info->vptr);
 }
 static void init_format(convert_t *convert, bcf1_t *line, fmt_t *fmt)
@@ -183,7 +180,7 @@ static void init_format(convert_t *convert, bcf1_t *line, fmt_t *fmt)
     if ( fmt->id==-1 ) error("Error: no such tag defined in the VCF header: FORMAT/%s\n", fmt->key);
     fmt->fmt = NULL;
     int i;
-    for (i=0; i<(int)line->n_fmt; i++)  
+    for (i=0; i<(int)line->n_fmt; i++)
         if ( line->d.fmt[i].id==fmt->id ) { fmt->fmt = &line->d.fmt[i]; break; }
     fmt->ready = 1;
 }
@@ -199,7 +196,7 @@ static void process_format(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isa
     }
     else if ( fmt->subscript >=0 )
     {
-        if ( fmt->fmt->n <= fmt->subscript ) 
+        if ( fmt->fmt->n <= fmt->subscript )
         {
             kputc('.', str);
             return;
@@ -241,27 +238,27 @@ static void process_tgt(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isampl
     for (l = 0; l < fmt->fmt->n && x[l] != bcf_int8_vector_end; ++l)
     {
         if (l) kputc("/|"[x[l]&1], str);
-        if (x[l]>>1) 
+        if (x[l]>>1)
         {
             int ial = (x[l]>>1) - 1;
             kputs(line->d.allele[ial], str);
         }
-        else 
+        else
             kputc('.', str);
     }
     if (l == 0) kputc('.', str);
 }
-static void process_sample(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isample, kstring_t *str) 
-{  
+static void process_sample(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isample, kstring_t *str)
+{
     kputs(convert->header->samples[isample], str);
 }
 static void process_sep(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isample, kstring_t *str) { if (fmt->key) kputs(fmt->key, str); }
-static void process_is_ts(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isample, kstring_t *str) 
-{ 
+static void process_is_ts(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isample, kstring_t *str)
+{
     int is_ts = 0;
-    if ( bcf_get_variant_types(line) & (VCF_SNP|VCF_MNP) ) 
+    if ( bcf_get_variant_types(line) & (VCF_SNP|VCF_MNP) )
         is_ts = abs(bcf_acgt2int(*line->d.allele[0])-bcf_acgt2int(*line->d.allele[1])) == 2 ? 1 : 0;
-    kputc(is_ts ? '1' : '0', str); 
+    kputc(is_ts ? '1' : '0', str);
 }
 static void process_type(convert_t *convert, bcf1_t *line, fmt_t *fmt, int isample, kstring_t *str)
 {
@@ -287,7 +284,7 @@ static void process_chrom_pos_id(convert_t *convert, bcf1_t *line, fmt_t *fmt, i
     else
     {
         // use CHROM:POS instead of ID
-        kputs(convert->header->id[BCF_DT_CTG][line->rid].key, str); 
+        kputs(convert->header->id[BCF_DT_CTG][line->rid].key, str);
         kputc(':', str);
         kputw(line->pos+1, str);
     }
@@ -315,7 +312,7 @@ static void process_gt_to_prob3(convert_t *convert, bcf1_t *line, fmt_t *fmt, in
     {
         int32_t *ptr = (int32_t*)convert->dat + i*n;
         int j;
-        for (j=0; j<n; j++) 
+        for (j=0; j<n; j++)
             if ( ptr[j]==bcf_int32_vector_end ) break;
 
         if ( j==2 )
@@ -398,7 +395,6 @@ static fmt_t *register_tag(convert_t *convert, int type, char *key, int is_gtf)
     {
         convert->mfmt += 10;
         convert->fmt   = (fmt_t*) realloc(convert->fmt, convert->mfmt*sizeof(fmt_t));
-            
     }
     fmt_t *fmt = &convert->fmt[ convert->nfmt-1 ];
     fmt->type  = type;
@@ -421,9 +417,9 @@ static fmt_t *register_tag(convert_t *convert, int type, char *key, int is_gtf)
             else if ( !strcmp("QUAL",key) ) { fmt->type = T_QUAL; }
             else if ( !strcmp("FILTER",key) ) { fmt->type = T_FILTER; }
             else if ( !strcmp("_CHROM_POS_ID",key) ) { fmt->type = T_CHROM_POS_ID; }
-            else if ( id>=0 && bcf_hdr_idinfo_exists(convert->header,BCF_HL_INFO,id) ) 
-            { 
-                fmt->type = T_INFO; 
+            else if ( id>=0 && bcf_hdr_idinfo_exists(convert->header,BCF_HL_INFO,id) )
+            {
+                fmt->type = T_INFO;
                 fprintf(stderr,"Warning: Assuming INFO/%s\n", key);
             }
         }
@@ -489,7 +485,7 @@ static char *parse_tag(convert_t *convert, char *p, int is_gtf)
         if ( !strcmp(str.s, "SAMPLE") ) register_tag(convert, T_SAMPLE, "SAMPLE", is_gtf);
         else if ( !strcmp(str.s, "GT") ) register_tag(convert, T_GT, "GT", is_gtf);
         else if ( !strcmp(str.s, "TGT") ) register_tag(convert, T_TGT, "GT", is_gtf);
-        else 
+        else
         {
             fmt_t *fmt = register_tag(convert, T_FORMAT, str.s, is_gtf);
             fmt->subscript = parse_subscript(&q);
@@ -513,7 +509,7 @@ static char *parse_tag(convert_t *convert, char *p, int is_gtf)
         else if ( !strcmp(str.s, "_CHROM_POS_ID") ) register_tag(convert, T_CHROM_POS_ID, str.s, is_gtf);
         else if ( !strcmp(str.s, "_GT_TO_PROB3") ) register_tag(convert, T_GT_TO_PROB3, str.s, is_gtf);
         else if ( !strcmp(str.s, "_PL_TO_PROB3") ) register_tag(convert, T_PL_TO_PROB3, str.s, is_gtf);
-        else if ( !strcmp(str.s, "INFO") ) 
+        else if ( !strcmp(str.s, "INFO") )
         {
             if ( *q!='/' ) error("Could not parse format string: %s\n", convert->format_str);
             p = ++q;
@@ -524,7 +520,7 @@ static char *parse_tag(convert_t *convert, char *p, int is_gtf)
             fmt_t *fmt = register_tag(convert, T_INFO, str.s, is_gtf);
             fmt->subscript = parse_subscript(&q);
         }
-        else 
+        else
         {
             fmt_t *fmt = register_tag(convert, T_INFO, str.s, is_gtf);
             fmt->subscript = parse_subscript(&q);
@@ -540,7 +536,7 @@ static char *parse_sep(convert_t *convert, char *p, int is_gtf)
     kstring_t str = {0,0,0};
     while ( *q && *q!='[' && *q!=']' && *q!='%' )
     {
-        if ( *q=='\\' ) 
+        if ( *q=='\\' )
         {
             q++;
             if ( *q=='n' ) kputc('\n', &str);
@@ -567,7 +563,7 @@ convert_t *convert_init(bcf_hdr_t *hdr, int *samples, int nsamples, const char *
     while ( *p )
     {
         //fprintf(stderr,"<%s>\n", p);
-        switch (*p) 
+        switch (*p)
         {
             case '[': is_gtf = 1; p++; break;
             case ']': is_gtf = 0; register_tag(convert, T_SEP, NULL, 0); p++; break;
@@ -614,7 +610,7 @@ int convert_header(convert_t *convert, kstring_t *str)
         if ( convert->fmt[i].type == T_LINE ) break;
     if ( i!=convert->nfmt )
         return str->l - l_ori;
-    
+
     kputs("# ", str);
     for (i=0; i<convert->nfmt; i++)
     {
@@ -665,7 +661,7 @@ int convert_line(convert_t *convert, bcf1_t *line, kstring_t *str)
         if ( convert->fmt[i].is_gt_field )
         {
             int j = i, js, k;
-            while ( convert->fmt[j].is_gt_field ) 
+            while ( convert->fmt[j].is_gt_field )
             {
                 convert->fmt[j].ready = 0;
                 j++;
@@ -677,7 +673,7 @@ int convert_line(convert_t *convert, bcf1_t *line, kstring_t *str)
                 {
                     if ( convert->fmt[k].type == T_MASK )
                     {
-                        for (ir=0; ir<convert->nreaders; ir++) 
+                        for (ir=0; ir<convert->nreaders; ir++)
                             kputc(bcf_sr_has_line(convert->readers,ir)?'1':'0', str);
                     }
                     else if ( convert->fmt[k].handler )
@@ -690,7 +686,7 @@ int convert_line(convert_t *convert, bcf1_t *line, kstring_t *str)
         // Fixed fields
         if ( convert->fmt[i].type == T_MASK )
         {
-            for (ir=0; ir<convert->nreaders; ir++) 
+            for (ir=0; ir<convert->nreaders; ir++)
                 kputc(bcf_sr_has_line(convert->readers,ir)?'1':'0', str);
         }
         else if ( convert->fmt[i].handler )

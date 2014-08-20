@@ -51,7 +51,7 @@ typedef struct
     bcf_srs_t *files;
     bcf_hdr_t *header;
     int nsamples, *samples, sample_is_file;
-	char **argv, *format_str, *sample_list, *targets_list, *regions_list, *vcf_list, *fn_out;
+    char **argv, *format_str, *sample_list, *targets_list, *regions_list, *vcf_list, *fn_out;
     int argc, list_columns, print_header;
     FILE *out;
 }
@@ -176,10 +176,10 @@ static void usage(void)
     fprintf(stderr, "\n");
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "    -c, --collapse <string>           collapse lines with duplicate positions for <snps|indels|both|all|some|none>, see man page [none]\n");
-	fprintf(stderr, "    -e, --exclude <expr>              exclude sites for which the expression is true (see man page for details)\n");
-	fprintf(stderr, "    -f, --format <string>             see man page for details\n");
+    fprintf(stderr, "    -e, --exclude <expr>              exclude sites for which the expression is true (see man page for details)\n");
+    fprintf(stderr, "    -f, --format <string>             see man page for details\n");
     fprintf(stderr, "    -H, --print-header                print header\n");
-	fprintf(stderr, "    -i, --include <expr>              select sites for which the expression is true (see man page for details)\n");
+    fprintf(stderr, "    -i, --include <expr>              select sites for which the expression is true (see man page for details)\n");
     fprintf(stderr, "    -l, --list-samples                print the list of samples and exit\n");
     fprintf(stderr, "    -o, --output-file <file>          output file name [stdout]\n");
     fprintf(stderr, "    -r, --regions <region>            restrict to comma-separated list of regions\n");
@@ -223,10 +223,10 @@ int main_vcfquery(int argc, char *argv[])
         {"vcf-list",1,0,'v'},
         {0,0,0,0}
     };
-	while ((c = getopt_long(argc, argv, "hlr:R:f:a:s:S:Ht:T:c:v:i:e:o:",loptions,NULL)) >= 0) {
+    while ((c = getopt_long(argc, argv, "hlr:R:f:a:s:S:Ht:T:c:v:i:e:o:",loptions,NULL)) >= 0) {
         switch (c) {
             case 'o': args->fn_out = optarg; break;
-			case 'f': args->format_str = strdup(optarg); break;
+            case 'f': args->format_str = strdup(optarg); break;
             case 'H': args->print_header = 1; break;
             case 'v': args->vcf_list = optarg; break;
             case 'c':
