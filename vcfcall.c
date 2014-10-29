@@ -253,7 +253,7 @@ static void init_missed_line(args_t *args)
     bcf_float_set_missing(args->missed_line->qual);
 }
 
-static void print_missed_line(struct _bcf_sr_regions_t *regs, void *data)
+static void print_missed_line(bcf_sr_regions_t *regs, void *data)
 {
     args_t *args = (args_t*) data;
     call_t *call = &args->aux;
@@ -300,7 +300,7 @@ static void init_data(args_t *args)
     }
 
     int i;
-    if ( !bcf_sr_add_reader(args->aux.srs, args->bcf_fname) ) error("Failed to open: %s\n", args->bcf_fname);
+    if ( !bcf_sr_add_reader(args->aux.srs, args->bcf_fname) ) error("Failed to open %s: %s\n", args->bcf_fname,bcf_sr_strerror(args->aux.srs->errnum));
 
     if ( args->nsamples && args->nsamples != bcf_hdr_nsamples(args->aux.srs->readers[0].header) )
     {
@@ -373,6 +373,9 @@ static void init_data(args_t *args)
             args->gvcf.gt[2*i+1] = bcf_gt_unphased(0);
         }
     }
+
+    bcf_hdr_remove(args->aux.hdr, BCF_HL_INFO, "QS");
+    bcf_hdr_remove(args->aux.hdr, BCF_HL_INFO, "I16");
 
     bcf_hdr_append_version(args->aux.hdr, args->argc, args->argv, "bcftools_call");
     bcf_hdr_write(args->out_fh, args->aux.hdr);

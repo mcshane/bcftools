@@ -635,6 +635,12 @@ static void filters_set_ac(filter_t *flt, bcf1_t *line, token_t *tok)
         tok->nvalues = line->n_allele - 1;
     }
 }
+static void filters_set_an(filter_t *flt, bcf1_t *line, token_t *tok)
+{
+    filters_set_ac(flt,line,tok);
+    tok->values[0] = tok->nvalues ? flt->tmpi[0] : 0; 
+    tok->nvalues = 1;
+}
 static void filters_set_mac(filter_t *flt, bcf1_t *line, token_t *tok)
 {
     filters_set_ac(flt,line,tok);
@@ -825,7 +831,7 @@ static int vector_logic_and(token_t *atok, token_t *btok)
         return pass_site;
     }
     /* atok->nsamples!=0 */
-    for (i=0; i<atok->nvalues; i++)
+    for (i=0; i<atok->nsamples; i++)
     {
         atok->pass_samples[i] = atok->pass_samples[i] && btok->pass_site;
         if ( !pass_site && atok->pass_samples[i] ) pass_site = 1;
@@ -985,8 +991,9 @@ static int cmp_vector_strings(token_t *atok, token_t *btok, int logic)    // log
             while ( b<bend && *b ) b++;
             if ( a-astr != b-bstr ) atok->pass_samples[i] = 0;
             else atok->pass_samples[i] = strncmp(astr,bstr,a-astr)==0 ? 1 : 0;
-            if ( logic!=TOK_EQ ) pass_site = pass_site ? 0 : 1;
-            if ( !pass_site && atok->pass_samples[i] ) pass_site = 1;
+            if ( logic!=TOK_EQ )
+                atok->pass_samples[i] = atok->pass_samples[i] ? 0 : 1;
+            pass_site |= atok->pass_samples[i];
         }
         if ( !atok->nsamples ) atok->nsamples = btok->nsamples;
     }
@@ -1035,8 +1042,9 @@ static int cmp_vector_strings(token_t *atok, token_t *btok, int logic)    // log
             while ( y<yend && *y ) y++;
             if ( x-xstr != y-ystr ) atok->pass_samples[i] = 0;
             else atok->pass_samples[i] = strncmp(xstr,ystr,x-xstr)==0 ? 1 : 0;
-            if ( logic!=TOK_EQ ) pass_site = pass_site ? 0 : 1;
-            if ( !pass_site && atok->pass_samples[i] ) pass_site = 1;
+            if ( logic!=TOK_EQ )
+                atok->pass_samples[i] = atok->pass_samples[i] ? 0 : 1;
+            pass_site |= atok->pass_samples[i];
         }
         if ( !atok->nsamples )
             atok->nvalues = atok->nsamples = btok->nsamples; // is it a bug? not sure if atok->nvalues should be set
@@ -1244,6 +1252,13 @@ static int filters_init1(filter_t *filter, char *str, int len, token_t *tok)
         tok->setter = &filters_set_alt_string;
         tok->is_str = 1;
         tok->tag = strdup(tmp.s);
+        free(tmp.s);
+        return 0;
+    }
+    else if ( !strcasecmp(tmp.s,"AN") )
+    {
+        tok->setter = &filters_set_an;
+        tok->tag = strdup("AN");
         free(tmp.s);
         return 0;
     }

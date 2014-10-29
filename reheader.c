@@ -40,13 +40,16 @@ THE SOFTWARE.  */
 typedef struct _args_t
 {
     char **argv, *fname, *samples_fname, *header_fname;
-    int argc, file_type;
+    htsFormat type;
+    int argc;
 }
 args_t;
 
 static void init_data(args_t *args)
 {
-    args->file_type = hts_file_type(args->fname);
+    htsFile *fp = hts_open(args->fname,"r");
+    args->type = fp->type;
+    hts_close(fp);
 }
 
 static void destroy_data(args_t *args)
@@ -343,7 +346,6 @@ static bcf_hdr_t *strip_header(bcf_hdr_t *src, bcf_hdr_t *dst)
         }
     }
     for (i=0; i<dst->n[BCF_DT_SAMPLE]; i++) bcf_hdr_add_sample(out, dst->samples[i]);
-    bcf_hdr_add_sample(out, NULL);
     bcf_hdr_destroy(dst);
     return out;
 }
@@ -484,15 +486,15 @@ int main_reheader(int argc, char *argv[])
 
     init_data(args);
 
-    if ( args->file_type & FT_VCF )
+    if ( args->type.format==vcf )
     {
-        if ( args->file_type & FT_GZ )
+        if ( args->type.compression==bgzf || args->type.compression==gzip )
             reheader_vcf_gz(args);
         else
             reheader_vcf(args);
     }
     else
-        reheader_bcf(args, args->file_type & FT_GZ);
+        reheader_bcf(args, args->type.compression==bgzf || args->type.compression==gzip);
 
     destroy_data(args);
     free(args);

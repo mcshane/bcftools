@@ -31,15 +31,6 @@ THE SOFTWARE.  */
 #include "version.h"
 #include "bcftools.h"
 
-void error(const char *format, ...)
-{
-    va_list ap;
-    va_start(ap, format);
-    vfprintf(stderr, format, ap);
-    va_end(ap);
-    exit(-1);
-}
-
 int main_tabix(int argc, char *argv[]);
 int main_vcfindex(int argc, char *argv[]);
 int main_vcfstats(int argc, char *argv[]);
@@ -58,6 +49,12 @@ int main_vcfconcat(int argc, char *argv[]);
 int main_reheader(int argc, char *argv[]);
 int main_vcfvalidate(int argc, char *argv[]);
 int main_vcfconvert(int argc, char *argv[]);
+int main_vcfcnv(int argc, char *argv[]);
+#if USE_GPL
+int main_polysomy(int argc, char *argv[]);
+#endif
+int main_plugin(int argc, char *argv[]);
+int main_consensus(int argc, char *argv[]);
 
 typedef struct
 {
@@ -110,6 +107,10 @@ static cmd_t cmds[] =
       .alias = "norm",
       .help  = "left-align and normalize indels"
     },
+    { .func  = main_plugin,
+      .alias = "plugin",
+      .help  = "user-defined plugins"
+    },
     { .func  = main_vcfquery,
       .alias = "query",
       .help  = "transform VCF/BCF into user-defined formats"
@@ -136,6 +137,14 @@ static cmd_t cmds[] =
       .alias = "call",
       .help  = "SNP/indel calling"
     },
+    { .func  = main_consensus,
+      .alias = "consensus",
+      .help  = "create consensus sequence by applying VCF variants"
+    },
+    { .func  = main_vcfcnv,
+      .alias = "cnv",
+      .help  = "-HMM CNV calling"    // do not advertise yet
+    },
     { .func  = main_vcffilter,
       .alias = "filter",
       .help  = "filter VCF/BCF files using fixed thresholds"
@@ -144,6 +153,12 @@ static cmd_t cmds[] =
       .alias = "gtcheck",
       .help  = "check sample concordance, detect sample swaps and contamination"
     },
+#if USE_GPL
+    { .func  = main_polysomy,
+      .alias = "polysomy",
+      .help  = "-detect number of chromosomal copies",
+    },
+#endif
     { .func  = main_vcfroh,
       .alias = "roh",
       .help  = "identify runs of autozygosity (HMM)",
@@ -156,6 +171,7 @@ static cmd_t cmds[] =
     { .func  = main_vcfsom,
       .alias = "som",
       .help  = "-filter using Self-Organized Maps (experimental)"   // do not advertise
+
     },
     { .func  = NULL,
       .alias = NULL,
@@ -172,6 +188,9 @@ static void usage(FILE *fp)
 {
     fprintf(fp, "\n");
     fprintf(fp, "Program: bcftools (Tools for variant calling and manipulating VCFs and BCFs)\n");
+#if USE_GPL
+    fprintf(fp, "License: GNU GPLv3+, due to use of the GNU Scientific Library\n");
+#endif
     fprintf(fp, "Version: %s (using htslib %s)\n", bcftools_version(), hts_version());
     fprintf(fp, "\n");
     fprintf(fp, "Usage:   bcftools <command> <argument>\n");
@@ -206,6 +225,12 @@ int main(int argc, char *argv[])
 
     if (strcmp(argv[1], "version") == 0 || strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) {
         printf("bcftools %s\nUsing htslib %s\nCopyright (C) 2014 Genome Research Ltd.\n", bcftools_version(), hts_version());
+#if USE_GPL
+        printf("License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>\n");
+#else
+        printf("License Expat: The MIT/Expat license\n");
+#endif
+        printf("This is free software: you are free to change and redistribute it.\nThere is NO WARRANTY, to the extent permitted by law.\n");
         return 0;
     }
     else if (strcmp(argv[1], "--version-only") == 0) {
@@ -219,6 +244,14 @@ int main(int argc, char *argv[])
         // when invoked without any arguments.
         argv++;
         argc = 2;
+    }
+    else if ( argv[1][0]=='+' )
+    {
+        // "bcftools plugin name" can be run as "bcftools +name"
+        argv[1]++;
+        argv[0] = "plugin";
+        argv--;
+        argc++;
     }
 
     int i = 0;

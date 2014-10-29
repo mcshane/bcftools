@@ -132,7 +132,7 @@ static void init_data(args_t *args)
             free(tmp.s);
         }
 
-        rbuf_init(&args->rbuf, 100);
+        rbuf_init(&args->rbuf, 64);
         args->rbuf_lines = (bcf1_t**) calloc(args->rbuf.m, sizeof(bcf1_t*));
         if ( args->snp_gap )
         {
@@ -226,12 +226,12 @@ static void buffered_filters(args_t *args, bcf1_t *line)
         if ( ilast>=0 && line->rid != args->rbuf_lines[ilast]->rid )
             flush_buffer(args, args->rbuf.n); // new chromosome, flush everything
 
-        assert( args->rbuf.n<args->rbuf.m );
+        if ( args->rbuf.n >= args->rbuf.m ) rbuf_expand0(&args->rbuf,bcf1_t*,args->rbuf_lines);
 
         // Insert the new record in the buffer. The line would be overwritten in
         // the next bcf_sr_next_line call, therefore we need to swap it with an
         // unused one
-        ilast = rbuf_add(&args->rbuf);
+        ilast = rbuf_append(&args->rbuf);
         if ( !args->rbuf_lines[ilast] ) args->rbuf_lines[ilast] = bcf_init1();
         SWAP(bcf1_t*, args->files->readers[0].buffer[0], args->rbuf_lines[ilast]);
 
@@ -492,7 +492,7 @@ int main_vcffilter(int argc, char *argv[])
         if ( bcf_sr_set_targets(args->files, args->targets_list,targets_is_file, 0)<0 )
             error("Failed to read the targets: %s\n", args->targets_list);
     }
-    if ( !bcf_sr_add_reader(args->files, fname) ) error("Failed to open: %s\n", fname);
+    if ( !bcf_sr_add_reader(args->files, fname) ) error("Failed to open %s: %s\n", fname,bcf_sr_strerror(args->files->errnum));
 
     init_data(args);
     bcf_hdr_write(args->out_fh, args->hdr);

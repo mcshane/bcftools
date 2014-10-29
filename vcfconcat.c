@@ -121,7 +121,7 @@ static void init_data(args_t *args)
         args->files = bcf_sr_init();
         args->files->require_index = 1;
         for (i=0; i<args->nfnames; i++)
-            if ( !bcf_sr_add_reader(args->files,args->fnames[i]) ) error("Failed to open, is the file indexed? %s\n", args->fnames[i]);
+            if ( !bcf_sr_add_reader(args->files,args->fnames[i]) ) error("Failed to open %s: %s\n", args->fnames[i],bcf_sr_strerror(args->files->errnum));
     }
     else if ( args->phased_concat )
     {
@@ -189,7 +189,7 @@ static void phase_update(args_t *args, bcf_hdr_t *hdr, bcf1_t *rec)
     {
         if ( !args->swap_phase[i] ) continue;
         int *gt = &args->GTa[i*2];
-        if ( gt[0]==bcf_gt_missing || gt[1]==bcf_int32_vector_end ) continue;
+        if ( bcf_gt_is_missing(gt[0]) || gt[1]==bcf_int32_vector_end ) continue;
         SWAP(int, gt[0], gt[1]);
         gt[1] |= 1;
     }
@@ -222,7 +222,7 @@ static void phased_flush(args_t *args)
             int *gta = &args->GTa[j*2];
             int *gtb = &args->GTb[j*2];
             if ( gta[1]==bcf_int32_vector_end || gtb[1]==bcf_int32_vector_end ) continue;
-            if ( gta[0]==bcf_gt_missing || gta[1]==bcf_gt_missing || gtb[0]==bcf_gt_missing || gtb[1]==bcf_gt_missing ) continue;
+            if ( bcf_gt_is_missing(gta[0]) || bcf_gt_is_missing(gta[1]) || bcf_gt_is_missing(gtb[0]) || bcf_gt_is_missing(gtb[1]) ) continue;
             if ( !bcf_gt_is_phased(gta[1]) || !bcf_gt_is_phased(gtb[1]) ) continue;
             if ( bcf_gt_allele(gta[0])==bcf_gt_allele(gta[1]) || bcf_gt_allele(gtb[0])==bcf_gt_allele(gtb[1]) ) continue;
             if ( bcf_gt_allele(gta[0])==bcf_gt_allele(gtb[0]) && bcf_gt_allele(gta[1])==bcf_gt_allele(gtb[1]) )
@@ -348,7 +348,7 @@ static void concat(args_t *args)
             int new_file = 0;
             while ( args->files->nreaders < 2 && args->ifname < args->nfnames )
             {
-                if ( !bcf_sr_add_reader(args->files,args->fnames[args->ifname]) ) error("Failed to open %s\n", args->fnames[args->ifname]);
+                if ( !bcf_sr_add_reader(args->files,args->fnames[args->ifname]) ) error("Failed to open %s: %s\n", args->fnames[args->ifname],bcf_sr_strerror(args->files->errnum));
                 new_file = 1;
 
                 args->ifname++;
@@ -395,7 +395,7 @@ static void concat(args_t *args)
                 while ( args->ifname < args->nfnames && args->start_pos[args->ifname]!=-1 && line->pos >= args->start_pos[args->ifname] )
                 {
                     must_seek = 1;
-                    bcf_sr_add_reader(args->files,args->fnames[args->ifname]);
+                    if ( !bcf_sr_add_reader(args->files,args->fnames[args->ifname]) ) error("Failed to open %s: %s\n", args->fnames[args->ifname],bcf_sr_strerror(args->files->errnum));
                     args->ifname++;
                 }
                 if ( must_seek )

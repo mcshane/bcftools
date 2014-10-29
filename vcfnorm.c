@@ -88,7 +88,7 @@ typedef struct
     bcf_hdr_t *hdr;
     faidx_t *fai;
     char **argv, *output_fname, *ref_fname, *vcf_fname, *region, *targets;
-    int argc, rmdup, output_type, check_ref;
+    int argc, rmdup, output_type, check_ref, strict_filter;
     int nchanged, nskipped, ntotal, mrows_op, mrows_collapse, parsimonious;
 }
 args_t;
@@ -804,8 +804,7 @@ static void split_format_genotype(args_t *args, bcf1_t *src, bcf_fmt_t *fmt, int
         for (j=0; j<ngts; j++)
         {
             if ( gt[j]==bcf_int32_vector_end ) break;
-            if ( gt[j]==bcf_int32_missing && bcf_gt_allele(gt[j])==0 ) continue;
-            if ( gt[j]==0 ) continue;   // missing allele: leave as is
+            if ( bcf_gt_is_missing(gt[j]) || bcf_gt_allele(gt[j])==0 ) continue; // missing allele or ref: leave as is
             if ( bcf_gt_allele(gt[j])==ialt+1 )
                 gt[j] = bcf_gt_unphased(1) | bcf_gt_is_phased(gt[j]); // set to first ALT
             else
@@ -817,7 +816,7 @@ static void split_format_genotype(args_t *args, bcf1_t *src, bcf_fmt_t *fmt, int
 }
 static void split_format_numeric(args_t *args, bcf1_t *src, bcf_fmt_t *fmt, int ialt, bcf1_t *dst)
 {
-    #define BRANCH_NUMERIC(type,type_t,is_vector_end) \
+    #define BRANCH_NUMERIC(type,type_t,is_vector_end,set_vector_end) \
     { \
         const char *tag = bcf_hdr_int2id(args->hdr,BCF_DT_ID,fmt->id); \
         int ntmp = args->ntmp_arr1 / sizeof(type_t); \
@@ -827,6 +826,11 @@ static void split_format_numeric(args_t *args, bcf1_t *src, bcf_fmt_t *fmt, int 
         type_t *vals = (type_t *) args->tmp_arr1; \
         int len = bcf_hdr_id2length(args->hdr,BCF_HL_FMT,fmt->id); \
         int i, nsmpl = bcf_hdr_nsamples(args->hdr); \
+        if ( nvals==nsmpl ) /* all values are missing */ \
+        { \
+            bcf_update_format_##type(args->hdr,dst,tag,vals,nsmpl); \
+            return; \
+        } \
         if ( len==BCF_VL_A ) \
         { \
             assert( nvals==(src->n_allele-1)*nsmpl); \
@@ -856,7 +860,8 @@ static void split_format_numeric(args_t *args, bcf1_t *src, bcf_fmt_t *fmt, int 
         } \
         else if ( len==BCF_VL_G ) \
         { \
-            assert( nvals==src->n_allele*(src->n_allele+1)/2*nsmpl || nvals==src->n_allele*nsmpl ); \
+            if ( nvals!=src->n_allele*(src->n_allele+1)/2*nsmpl && nvals!=src->n_allele*nsmpl ) \
+                error("Error at %s:%d, the tag %s has wrong number of fields\n", bcf_seqname(args->hdr,src),src->pos+1,bcf_hdr_int2id(args->hdr,BCF_DT_ID,fmt->id)); \
             nvals /= nsmpl; \
             int all_haploid = nvals==src->n_allele ? 1 : 0; \
             type_t *src_vals = vals, *dst_vals = vals; \
@@ -873,14 +878,14 @@ static void split_format_numeric(args_t *args, bcf1_t *src, bcf_fmt_t *fmt, int 
                 if ( haploid ) \
                 { \
                     dst_vals[1] = src_vals[ialt+1]; \
-                    dst_vals += 2; \
+                    if ( !all_haploid ) set_vector_end; \
                 } \
                 else \
                 { \
                     dst_vals[1] = src_vals[bcf_alleles2gt(0,ialt+1)]; \
                     dst_vals[2] = src_vals[bcf_alleles2gt(ialt+1,ialt+1)]; \
-                    dst_vals += 3; \
                 } \
+                dst_vals += all_haploid ? 2 : 3; \
                 src_vals += nvals; \
             } \
             bcf_update_format_##type(args->hdr,dst,tag,vals,all_haploid ? nsmpl*2 : nsmpl*3); \
@@ -890,8 +895,8 @@ static void split_format_numeric(args_t *args, bcf1_t *src, bcf_fmt_t *fmt, int 
     }
     switch (bcf_hdr_id2type(args->hdr,BCF_HL_FMT,fmt->id))
     {
-        case BCF_HT_INT:  BRANCH_NUMERIC(int32, int32_t, src_vals[j]==bcf_int32_vector_end); break;
-        case BCF_HT_REAL: BRANCH_NUMERIC(float, float, bcf_float_is_vector_end(src_vals[j])); break;
+        case BCF_HT_INT:  BRANCH_NUMERIC(int32, int32_t, src_vals[j]==bcf_int32_vector_end, dst_vals[2]=bcf_int32_vector_end); break;
+        case BCF_HT_REAL: BRANCH_NUMERIC(float, float, bcf_float_is_vector_end(src_vals[j]), bcf_float_set_vector_end(dst_vals[2])); break;
     }
     #undef BRANCH_NUMERIC
 }
@@ -1254,7 +1259,7 @@ static void merge_format_genotype(args_t *args, bcf1_t **lines, int nlines, bcf_
             for (k=0; k<ngts; k++)
             {
                 if ( gt2[k]==bcf_int32_vector_end ) break;
-                if ( gt2[k]==bcf_int32_missing || bcf_gt_allele(gt2[k])==0 ) continue;
+                if ( bcf_gt_is_missing(gt2[k]) || bcf_gt_allele(gt2[k])==0 ) continue;
                 if ( gt2[k]==0 ) gt[k] = 0; // missing genotype
                 else
                 {
@@ -1524,7 +1529,16 @@ static void merge_biallelics_to_multiallelic(args_t *args, bcf1_t *dst, bcf1_t *
 
     dst->rid  = lines[0]->rid;
     dst->pos  = lines[0]->pos;
-    dst->qual = lines[0]->qual;
+
+    // take max for QUAL
+    bcf_float_set_missing(dst->qual);
+    for (i=0; i<nlines; i++) {
+        if (bcf_float_is_missing(lines[i]->qual)) continue;
+        if (bcf_float_is_missing(dst->qual) || dst->qual<lines[i]->qual)
+            dst->qual = lines[i]->qual;
+    }
+
+    bcf_update_id(args->hdr, dst, lines[0]->d.id);
 
     // Merge and set the alleles, create a mapping from source allele indexes to dst idxs
     hts_expand0(map_t,nlines,args->mmaps,args->maps);   // a mapping for each line
@@ -1538,6 +1552,15 @@ static void merge_biallelics_to_multiallelic(args_t *args, bcf1_t *dst, bcf1_t *
     }
     for (i=1; i<nlines; i++)
     {
+        if (lines[i]->d.id[0]!='.' || lines[i]->d.id[1]) {
+            kstring_t tmp = {0,0,0};
+            if (dst->d.id[0]=='.' && !dst->d.id[1])
+                kputs(lines[i]->d.id, &tmp);
+            else
+                ksprintf(&tmp, "%s;%s", dst->d.id, lines[i]->d.id);
+            bcf_update_id(args->hdr, dst, tmp.s);
+            free(tmp.s);
+        }
         args->maps[i].nals = lines[i]->n_allele;
         hts_expand(int,args->maps[i].nals,args->maps[i].mals,args->maps[i].map);
         args->als = merge_alleles(lines[i]->d.allele, lines[i]->n_allele, args->maps[i].map, args->als, &args->nals, &args->mals);
@@ -1547,6 +1570,22 @@ static void merge_biallelics_to_multiallelic(args_t *args, bcf1_t *dst, bcf1_t *
     for (i=0; i<args->nals; i++) free(args->als[i]);
 
     if ( lines[0]->d.n_flt ) bcf_update_filter(args->hdr, dst, lines[0]->d.flt, lines[0]->d.n_flt);
+    for (i=1; i<nlines; i++) {
+        int j;
+        for (j=0; j<lines[i]->d.n_flt; j++) {
+            // if strict_filter, set FILTER to PASS if any site PASS
+            // otherwise accumulate FILTERs
+            if (lines[i]->d.flt[j] == bcf_hdr_id2int(args->hdr, BCF_DT_ID, "PASS")) {
+                if (args->strict_filter) {
+                    bcf_update_filter(args->hdr, dst, lines[i]->d.flt, lines[i]->d.n_flt);
+                    break;
+                }
+                else
+                    continue;
+            }
+            bcf_add_filter(args->hdr, dst, lines[i]->d.flt[j]);
+        }
+    }
 
     // merge info
     for (i=0; i<lines[0]->n_info; i++)
@@ -1765,7 +1804,7 @@ static void normalize_vcf(args_t *args)
         if ( ilast>=0 && line->rid != args->lines[ilast]->rid ) flush_buffer(args, out, args->rbuf.n); // new chromosome
 
         // insert into sorted buffer
-        i = j = ilast = rbuf_add(&args->rbuf);
+        i = j = ilast = rbuf_append(&args->rbuf);
         if ( !args->lines[i] ) args->lines[i] = bcf_init1();
         SWAP(bcf1_t*, args->files->readers[0].buffer[0], args->lines[i]);
         while ( rbuf_prev(&args->rbuf,&i) )
@@ -1807,6 +1846,7 @@ static void usage(void)
     fprintf(stderr, "    -O, --output-type <type>          'b' compressed BCF; 'u' uncompressed BCF; 'z' compressed VCF; 'v' uncompressed VCF [v]\n");
     fprintf(stderr, "    -r, --regions <region>            restrict to comma-separated list of regions\n");
     fprintf(stderr, "    -R, --regions-file <file>         restrict to regions listed in a file\n");
+    fprintf(stderr, "    -s, --strict-filter               when merging (-m+), merged site is PASS only if all sites being merged PASS\n");
     fprintf(stderr, "    -t, --targets <region>            similar to -r but streams rather than index-jumps\n");
     fprintf(stderr, "    -T, --targets-file <file>         similar to -R but streams rather than index-jumps\n");
     fprintf(stderr, "    -w, --site-win <int>              buffer for sorting lines which changed position during realignment [1000]\n");
@@ -1842,9 +1882,10 @@ int main_vcfnorm(int argc, char *argv[])
         {"output",1,0,'o'},
         {"output-type",1,0,'O'},
         {"check-ref",1,0,'c'},
+        {"strict-filter",0,0,'s'},
         {0,0,0,0}
     };
-    while ((c = getopt_long(argc, argv, "hr:R:f:w:Do:O:c:m:t:T:",loptions,NULL)) >= 0) {
+    while ((c = getopt_long(argc, argv, "hr:R:f:w:Do:O:c:m:t:T:s",loptions,NULL)) >= 0) {
         switch (c) {
             case 'm':
                 if ( optarg[0]=='-' ) args->mrows_op = MROWS_SPLIT;
@@ -1875,6 +1916,7 @@ int main_vcfnorm(int argc, char *argv[])
                 break;
             case 'o': args->output_fname = optarg; break;
             case 'D': args->rmdup = 1; break;
+            case 's': args->strict_filter = 1; break;
             case 'f': args->ref_fname = optarg; break;
             case 'r': args->region = optarg; break;
             case 'R': args->region = optarg; region_is_file = 1; break;
@@ -1907,7 +1949,7 @@ int main_vcfnorm(int argc, char *argv[])
             error("Failed to read the targets: %s\n", args->targets);
     }
 
-    if ( !bcf_sr_add_reader(args->files, fname) ) error("Failed to open or the file not indexed: %s\n", fname);
+    if ( !bcf_sr_add_reader(args->files, fname) ) error("Failed to open %s: %s\n", fname,bcf_sr_strerror(args->files->errnum));
     if ( args->mrows_op&MROWS_SPLIT && args->rmdup ) error("Cannot combine -D and -m-\n");
     init_data(args);
     normalize_vcf(args);
