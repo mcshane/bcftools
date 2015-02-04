@@ -31,6 +31,7 @@ THE SOFTWARE.  */
 #include <htslib/synced_bcf_reader.h>
 #include <htslib/vcfutils.h>
 #include <math.h>
+#include <ctype.h>
 #include "bcftools.h"
 #include "vcmp.h"
 
@@ -43,6 +44,7 @@ typedef khash_t(strdict) strdict_t;
 
 #define IS_VL_G(hdr,id) (bcf_hdr_id2length(hdr,BCF_HL_FMT,id) == BCF_VL_G)
 #define IS_VL_A(hdr,id) (bcf_hdr_id2length(hdr,BCF_HL_FMT,id) == BCF_VL_A)
+#define IS_VL_R(hdr,id) (bcf_hdr_id2length(hdr,BCF_HL_FMT,id) == BCF_VL_R)
 
 // For merging INFO Number=A,G,R tags
 typedef struct
@@ -515,6 +517,7 @@ char **merge_alleles(char **a, int na, int *map, char **b, int *nb, int *mb)
     // reference allele never changes
     map[0] = 0;
 
+    int i,j;
     int rla = !a[0][1] ? 1 : strlen(a[0]);
     int rlb = !b[0][1] ? 1 : strlen(b[0]);
 
@@ -528,15 +531,28 @@ char **merge_alleles(char **a, int na, int *map, char **b, int *nb, int *mb)
     // Sanity check: reference prefixes must be identical
     if ( strncmp(a[0],b[0],rla<rlb?rla:rlb) )
     {
-        fprintf(stderr, "The REF prefixes differ: %s vs %s (%d,%d)\n", a[0],b[0],rla,rlb);
-        return NULL;
+        if ( strncasecmp(a[0],b[0],rla<rlb?rla:rlb) )
+        {
+            fprintf(stderr, "The REF prefixes differ: %s vs %s (%d,%d)\n", a[0],b[0],rla,rlb);
+            return NULL;
+        }
+        // Different case, change to uppercase
+        for (i=0; i<na; i++)
+        {
+            int len = strlen(a[i]);
+            for (j=0; j<len; j++) a[i][j] = toupper(a[i][j]);
+        }
+        for (i=0; i<*nb; i++)
+        {
+            int len = strlen(b[i]);
+            for (j=0; j<len; j++) b[i][j] = toupper(b[i][j]);
+        }
     }
 
     int n = *nb + na;
     hts_expand0(char*,n,*mb,b);
 
     // $b alleles need expanding
-    int i,j;
     if ( rla>rlb )
     {
         for (i=0; i<*nb; i++)
@@ -825,6 +841,14 @@ static void bcf_info_set_id(bcf1_t *line, bcf_info_t *info, int id, kstring_t *t
     tmp_str->l = 0;
 }
 
+/*
+ *  copy_string_field() - copy a comma-separated field
+ *  @param src:     source string
+ *  @param isrc:    index of the field to copy 
+ *  @param src_len: length of source string (excluding the terminating \0) 
+ *  @param dst:     destination kstring (must be initialized)
+ *  @param idst:    index of the destination field
+ */
 int copy_string_field(char *src, int isrc, int src_len, kstring_t *dst, int idst)
 {
     int ith_src = 0, start_src = 0;    // i-th field in src string
@@ -1224,18 +1248,18 @@ void merge_format_field(args_t *args, bcf_fmt_t **fmt_map, bcf1_t *out)
         {
             length = BCF_VL_G;
             nsize = out->n_allele*(out->n_allele + 1)/2;
-            int nals_ori = files->readers[i].buffer[0]->n_allele;
-            if ( fmt_map[i]->n != nals_ori*(nals_ori+1)/2 && fmt_map[i]->n != nals_ori )
-                error("Incorrect number of %s fields at %s:%d, cannot merge.\n", key,bcf_seqname(args->out_hdr,out),out->pos+1);
             break;
         }
         if ( IS_VL_A(files->readers[i].header, fmt_map[i]->id) )
         {
             length = BCF_VL_A;
             nsize = out->n_allele - 1;
-            int nals_ori = files->readers[i].buffer[0]->n_allele;
-            if ( fmt_map[i]->n != nals_ori-1 )
-                error("Incorrect number of %s fields at %s:%d, cannot merge.\n", key,bcf_seqname(args->out_hdr,out),out->pos+1);
+            break;
+        }
+        if ( IS_VL_R(files->readers[i].header, fmt_map[i]->id) )
+        {
+            length = BCF_VL_R;
+            nsize = out->n_allele;
             break;
         }
         if ( fmt_map[i]->n > nsize ) nsize = fmt_map[i]->n;
@@ -1254,7 +1278,27 @@ void merge_format_field(args_t *args, bcf_fmt_t **fmt_map, bcf1_t *out)
         bcf_sr_t *reader = &files->readers[i];
         bcf_hdr_t *hdr = reader->header;
         bcf_fmt_t *fmt_ori = fmt_map[i];
-        if ( fmt_ori ) type = fmt_ori->type;
+        if ( fmt_ori )
+        {
+            type = fmt_ori->type;
+            int nals_ori = reader->buffer[0]->n_allele;
+            if ( length==BCF_VL_G )
+            {
+                // if all fields are missing then n==1 is valid
+                if ( fmt_ori->n!=1 && fmt_ori->n != nals_ori*(nals_ori+1)/2 && fmt_map[i]->n != nals_ori )
+                    error("Incorrect number of %s fields (%d) at %s:%d, cannot merge.\n", key,fmt_ori->n,bcf_seqname(args->out_hdr,out),out->pos+1);
+            }
+            else if ( length==BCF_VL_A )
+            {
+                if ( fmt_ori->n!=1 && fmt_ori->n != nals_ori-1 )
+                    error("Incorrect number of %s fields (%d) at %s:%d, cannot merge.\n", key,fmt_ori->n,bcf_seqname(args->out_hdr,out),out->pos+1);
+            }
+            else if ( length==BCF_VL_R )
+            {
+                if ( fmt_ori->n!=1 && fmt_ori->n != nals_ori )
+                    error("Incorrect number of %s fields (%d) at %s:%d, cannot merge.\n", key,fmt_ori->n,bcf_seqname(args->out_hdr,out),out->pos+1);
+            }
+        }
 
         // set the values
         #define BRANCH(tgt_type_t, src_type_t, src_is_missing, src_is_vector_end, tgt_set_missing, tgt_set_vector_end) { \
@@ -1273,7 +1317,7 @@ void merge_format_field(args_t *args, bcf_fmt_t **fmt_map, bcf1_t *out)
             assert( ma->has_line[i] ); \
             bcf1_t *line    = reader->buffer[0]; \
             src_type_t *src = (src_type_t*) fmt_ori->p; \
-            if ( (length!=BCF_VL_G && length!=BCF_VL_A) || (line->n_allele==out->n_allele && !ma->d[i][0].als_differ) ) \
+            if ( (length!=BCF_VL_G && length!=BCF_VL_A && length!=BCF_VL_R) || (line->n_allele==out->n_allele && !ma->d[i][0].als_differ) ) \
             { \
                 /* alleles unchanged, copy over */ \
                 for (j=0; j<bcf_hdr_nsamples(hdr); j++) \
@@ -1298,6 +1342,14 @@ void merge_format_field(args_t *args, bcf_fmt_t **fmt_map, bcf1_t *out)
                 for (j=0; j<bcf_hdr_nsamples(hdr); j++) \
                 { \
                     tgt = (tgt_type_t *) ma->tmp_arr + (ismpl+j)*nsize; \
+                    src = (src_type_t*) fmt_ori->p + j*fmt_ori->n; \
+                    if ( (src_is_missing && fmt_ori->n==1) || (++src && src_is_vector_end) ) \
+                    { \
+                        /* tag with missing value "." */ \
+                        tgt_set_missing; \
+                        for (l=1; l<nsize; l++) { tgt++; tgt_set_vector_end; } \
+                        continue; \
+                    } \
                     int ngsize = ma->smpl_ploidy[ismpl+j]==1 ? out->n_allele : out->n_allele*(out->n_allele + 1)/2; \
                     for (l=0; l<ngsize; l++) { tgt_set_missing; tgt++; } \
                     for (; l<nsize; l++) { tgt_set_vector_end; tgt++; } \
@@ -1343,15 +1395,25 @@ void merge_format_field(args_t *args, bcf_fmt_t **fmt_map, bcf1_t *out)
             } \
             else \
             { \
-                /* Number=A tags */ \
+                /* Number=A or Number=R tags */ \
+                int ifrom = length==BCF_VL_A ? 1 : 0; \
                 for (j=0; j<bcf_hdr_nsamples(hdr); j++) \
                 { \
                     tgt = (tgt_type_t *) ma->tmp_arr + (ismpl+j)*nsize; \
+                    src = (src_type_t*) (fmt_ori->p + j*fmt_ori->size); \
+                    if ( (src_is_missing && fmt_ori->n==1) || (++src && src_is_vector_end) ) \
+                    { \
+                        /* tag with missing value "." */ \
+                        tgt_set_missing; \
+                        for (l=1; l<nsize; l++) { tgt++; tgt_set_vector_end; } \
+                        continue; \
+                    } \
+                    src = (src_type_t*) (fmt_ori->p + j*fmt_ori->size); \
                     for (l=0; l<nsize; l++) { tgt_set_missing; tgt++; } \
                     int iori,inew; \
-                    for (iori=1; iori<line->n_allele; iori++) \
+                    for (iori=ifrom; iori<line->n_allele; iori++) \
                     { \
-                        inew = ma->d[i][0].map[iori] - 1; \
+                        inew = ma->d[i][0].map[iori] - ifrom; \
                         tgt = (tgt_type_t *) ma->tmp_arr + (ismpl+j)*nsize + inew; \
                         if ( src_is_vector_end ) break; \
                         if ( src_is_missing ) tgt_set_missing; \
@@ -1655,7 +1717,6 @@ void merge_buffer(args_t *args)
         {
             bcf1_t *line = reader->buffer[j];
             int line_type = bcf_get_variant_types(line);
-
             // select relevant lines
             maux->d[i][j].skip = SKIP_DIFF;
             if ( pos!=line->pos )
@@ -1681,8 +1742,18 @@ void merge_buffer(args_t *args)
                     }
                     if ( k==line->n_allele ) continue;  // no matching allele
                 }
-                if ( var_type&VCF_SNP && !(line_type&VCF_SNP) && !(args->collapse&COLLAPSE_ANY) && line_type!=VCF_REF ) continue;
-                if ( var_type&VCF_INDEL && !(line_type&VCF_INDEL) && !(args->collapse&COLLAPSE_ANY) && line_type!=VCF_REF ) continue;
+                if ( !(args->collapse&COLLAPSE_ANY) )
+                {
+                    int compatible = 0;
+                    if ( line_type==var_type ) compatible = 1;
+                    else if ( line_type==VCF_REF ) compatible = 1;   // REF can go with anything
+                    else if ( var_type&VCF_SNP && line_type&VCF_SNP ) compatible = 1;
+                    else if ( var_type&VCF_INDEL && line_type&VCF_INDEL ) compatible = 1;
+                    else if ( var_type&VCF_MNP && line_type&VCF_MNP ) compatible = 1;
+                    else if ( var_type&VCF_SNP && line_type&VCF_MNP ) compatible = 1;
+                    else if ( var_type&VCF_MNP && line_type&VCF_SNP ) compatible = 1;
+                    if ( !compatible ) continue;
+                }
             }
             maux->d[i][j].skip = 0;
 
@@ -1704,7 +1775,7 @@ void merge_buffer(args_t *args)
 
             // normalize alleles
             maux->als = merge_alleles(line->d.allele, line->n_allele, maux->d[i][j].map, maux->als, &maux->nals, &maux->mals);
-            if ( !maux->als ) error("Failed to merge alleles at %s:%d\n",bcf_seqname(args->out_hdr,line),line->pos+1);
+            if ( !maux->als ) error("Failed to merge alleles at %s:%d in %s\n",bcf_seqname(args->out_hdr,line),line->pos+1,reader->fname);
             hts_expand0(int, maux->nals, maux->ncnt, maux->cnt);
             for (k=1; k<line->n_allele; k++)
                 maux->cnt[ maux->d[i][j].map[k] ]++;    // how many times an allele appears in the files
@@ -1879,7 +1950,8 @@ static void usage(void)
 {
     fprintf(stderr, "\n");
     fprintf(stderr, "About:   Merge multiple VCF/BCF files from non-overlapping sample sets to create one multi-sample file.\n");
-    fprintf(stderr, "         Compatible records are combined into one according to the -m option.\n");
+    fprintf(stderr, "         Note that only records from different files can be merged, never from the same file. For\n");
+    fprintf(stderr, "         \"vertical\" merge take a look at \"bcftools norm\" instead.\n");
     fprintf(stderr, "Usage:   bcftools merge [options] <A.vcf.gz> <B.vcf.gz> [...]\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Options:\n");
@@ -1889,7 +1961,7 @@ static void usage(void)
     fprintf(stderr, "    -f, --apply-filters <list>         require at least one of the listed FILTER strings (e.g. \"PASS,.\")\n");
     fprintf(stderr, "    -i, --info-rules <tag:method,..>   rules for merging INFO fields (method is one of sum,avg,min,max,join) or \"-\" to turn off the default [DP:sum,DP4:sum]\n");
     fprintf(stderr, "    -l, --file-list <file>             read file names from the file\n");
-    fprintf(stderr, "    -m, --merge <string>               merge sites with differing alleles for <snps|indels|both|all|none|id>, see man page for details [both]\n");
+    fprintf(stderr, "    -m, --merge <string>               allow multiallelic records for <snps|indels|both|all|none|id>, see man page for details [both]\n");
     fprintf(stderr, "    -o, --output <file>                write output to a file [standard output]\n");
     fprintf(stderr, "    -O, --output-type <b|u|z|v>        'b' compressed BCF; 'u' uncompressed BCF; 'z' compressed VCF; 'v' uncompressed VCF [v]\n");
     fprintf(stderr, "    -r, --regions <region>             restrict to comma-separated list of regions\n");

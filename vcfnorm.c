@@ -1173,7 +1173,7 @@ static void merge_info_flag(args_t *args, bcf1_t **lines, int nlines, bcf_info_t
     int ret = bcf_get_info_flag(args->hdr,lines[0],tag,&args->tmp_arr1,&args->ntmp_arr1);
     bcf_update_info_flag(args->hdr,dst,tag,NULL,ret);
 }
-void copy_string_field(char *src, int isrc, int src_len, kstring_t *dst, int idst); // see vcfmerge.c
+int copy_string_field(char *src, int isrc, int src_len, kstring_t *dst, int idst); // see vcfmerge.c
 static void merge_info_string(args_t *args, bcf1_t **lines, int nlines, bcf_info_t *info, bcf1_t *dst)
 {
     const char *tag = bcf_hdr_int2id(args->hdr,BCF_DT_ID,info->key);
@@ -1835,7 +1835,7 @@ static void usage(void)
     fprintf(stderr, "About:   Left-align and normalize indels; check if REF alleles match the reference;\n");
     fprintf(stderr, "         split multiallelic sites into multiple rows; recover multiallelics from\n");
     fprintf(stderr, "         multiple rows.\n");
-    fprintf(stderr, "Usage:   bcftools norm [options] -f <ref.fa> <in.vcf.gz>\n");
+    fprintf(stderr, "Usage:   bcftools norm [options] <in.vcf.gz>\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "    -c, --check-ref <e|w|x>           check REF alleles and exit (e), warn (w), exclude (x) bad sites [e]\n");
@@ -1885,6 +1885,7 @@ int main_vcfnorm(int argc, char *argv[])
         {"strict-filter",0,0,'s'},
         {0,0,0,0}
     };
+    char *tmp;
     while ((c = getopt_long(argc, argv, "hr:R:f:w:Do:O:c:m:t:T:s",loptions,NULL)) >= 0) {
         switch (c) {
             case 'm':
@@ -1922,7 +1923,10 @@ int main_vcfnorm(int argc, char *argv[])
             case 'R': args->region = optarg; region_is_file = 1; break;
             case 't': args->targets = optarg; break;
             case 'T': args->targets = optarg; targets_is_file = 1; break;
-            case 'w': args->buf_win = atoi(optarg); break;
+            case 'w':
+                args->buf_win = strtol(optarg,&tmp,10);
+                if ( *tmp ) error("Could not parse argument: --site-win %s\n", optarg);
+                break;
             case 'h':
             case '?': usage();
             default: error("Unknown argument: %s\n", optarg);

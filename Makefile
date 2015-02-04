@@ -48,7 +48,7 @@ INCLUDES = -I. -I$(HTSDIR)
 
 # The polysomy command is not compiled by default because it brings dependency
 # on libgsl. The command can be compiled wth `make USE_GPL=1`. See the INSTALL
-# and COPYING documents to understand license implications.
+# and LICENSE documents to understand license implications.
 ifdef USE_GPL
     CFLAGS += -DUSE_GPL
     OBJS   += polysomy.o
@@ -71,7 +71,7 @@ INSTALL_DIR     = $(MKDIR_P) -m 755
 all:$(PROG) plugins
 
 # See htslib/Makefile
-PACKAGE_VERSION = 1.1
+PACKAGE_VERSION = 1.2
 ifneq "$(wildcard .git)" ""
 PACKAGE_VERSION := $(shell git describe --always --dirty)
 DOC_VERSION :=  $(shell git describe --always)+
@@ -92,6 +92,9 @@ force:
 
 test: $(PROG) plugins test/test-rbuf $(BGZIP) $(TABIX)
 	./test/test.pl --exec bgzip=$(BGZIP) --exec tabix=$(TABIX)
+
+test-plugins: $(PROG) plugins test/test-rbuf $(BGZIP) $(TABIX)
+	./test/test.pl --plugins --exec bgzip=$(BGZIP) --exec tabix=$(TABIX)
 
 
 # Plugin rules

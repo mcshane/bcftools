@@ -82,7 +82,7 @@ typedef struct
     int *smpl_hets, *smpl_homRR, *smpl_homAA, *smpl_ts, *smpl_tv, *smpl_indels, *smpl_ndp, *smpl_sngl;
     int *smpl_frm_shifts; // not-applicable, in-frame, out-frame
     unsigned long int *smpl_dp;
-    idist_t dp;
+    idist_t dp, dp_sites;
     int nusr;
     user_stats_t *usr;
 }
@@ -433,6 +433,7 @@ static void init_stats(args_t *args)
                 stats->smpl_frm_shifts = (int*) calloc(args->files->n_smpl*3,sizeof(int));
         }
         idist_init(&stats->dp, args->dp_min,args->dp_max,args->dp_step);
+        idist_init(&stats->dp_sites, args->dp_min,args->dp_max,args->dp_step);
         init_user_stats(args, i!=1 ? args->files->readers[0].header : args->files->readers[1].header, stats);
     }
 
@@ -503,6 +504,7 @@ static void destroy_stats(args_t *args)
         if (stats->smpl_ndp) free(stats->smpl_ndp);
         if (stats->smpl_sngl) free(stats->smpl_sngl);
         idist_destroy(&stats->dp);
+        idist_destroy(&stats->dp_sites);
         for (j=0; j<stats->nusr; j++)
         {
             free(stats->usr[j].vals_ts);
@@ -887,7 +889,7 @@ static void do_sample_stats(args_t *args, stats_t *stats, bcf_sr_t *reader, int 
             y   += dsg1;
             y2  += dsg1*dsg1;
             xy  += dsg0*dsg1;
-            r2n += dsg0<=3 ? 2 : 1;
+            r2n++;
 
             int idx = type2stats[gt0];
             if ( gt0==gt1 )
@@ -907,12 +909,16 @@ static void do_sample_stats(args_t *args, stats_t *stats, bcf_sr_t *reader, int 
             x /= r2n; y /= r2n; x2 /= r2n; y2 /= r2n; xy /= r2n;
             float cov  = xy - x*y;
             float var2 = (x2 - x*x) * (y2 - y*y);
-            af_stats[iaf].r2sum += var2==0 ? 1 : cov*cov/var2;
-            af_stats[iaf].r2n++;
+            if ( var2!=0 )
+            {
+                af_stats[iaf].r2sum += cov*cov/var2;
+                af_stats[iaf].r2n++;
+            }
         }
 
         if ( args->verbose_sites )
         {
+            int nm = 0, nmm = 0, nrefm = 0;
             for (is=0; is<files->n_smpl; is++)
             {
                 int gt = bcf_gt_type(fmt0, files->readers[0].samples[is], NULL, NULL);
@@ -921,10 +927,18 @@ static void do_sample_stats(args_t *args, stats_t *stats, bcf_sr_t *reader, int 
                 if ( gt2 == GT_UNKN ) continue;
                 if ( gt != gt2 )
                 {
+                    nmm++;
                     bcf_sr_t *reader = &files->readers[0];
                     printf("DBG\t%s\t%d\t%s\t%d\t%d\n",reader->header->id[BCF_DT_CTG][reader->buffer[0]->rid].key,reader->buffer[0]->pos+1,files->samples[is],gt,gt2);
                 }
+                else
+                {
+                    if ( gt!=GT_HOM_RR ) nrefm++;
+                    nm++;
+                }
             }
+            float nrd = nrefm+nmm ? 100.*nmm/(nrefm+nmm) : 0;
+            printf("PSD\t%s\t%d\t%d\t%d\t%f\n", reader->header->id[BCF_DT_CTG][reader->buffer[0]->rid].key,reader->buffer[0]->pos+1,nm,nmm,nrd);
         }
     }
 }
@@ -972,6 +986,9 @@ static void do_vcf_stats(args_t *args)
 
         if ( files->n_smpl )
             do_sample_stats(args, stats, reader, ret);
+
+        if ( bcf_get_info_int32(reader->header,line,"DP",&args->tmp_iaf,&args->ntmp_iaf)==1 )
+            (*idist(&stats->dp_sites, args->tmp_iaf[0]))++;    
     }
 }
 
@@ -1005,10 +1022,15 @@ static void print_header(args_t *args)
         printf("ID\t2\t%s\t%s\n", fname0,fname1);
 
         if ( args->verbose_sites )
+        {
+            printf(
+                    "# Verbose per-site discordance output.\n"
+                    "# PSD\t[2]CHROM\t[3]POS\t[4]Number of matches\t[5]Number of mismatches\t[6]NRD\n");
             printf(
                     "# Verbose per-site and per-sample output. Genotype codes: %d:HomRefRef, %d:HomAltAlt, %d:HetAltRef, %d:HetAltAlt, %d:haploidRef, %d:haploidAlt\n"
                     "# DBG\t[2]CHROM\t[3]POS\t[4]Sample\t[5]GT in %s\t[6]GT in %s\n",
                     GT_HOM_RR, GT_HOM_AA, GT_HET_RA, GT_HET_AA, GT_HAPL_R, GT_HAPL_A, fname0,fname1);
+        }
     }
 }
 
@@ -1073,7 +1095,7 @@ static void print_stats(args_t *args)
             }
         }
     }
-    printf("# Sis, Singleton stats:\n# SiS\t[2]id\t[3]allele count\t[4]number of SNPs\t[5]number of transitions\t[6]number of transversions\t[7]number of indels\t[8]repeat-consistent\t[9]repeat-inconsistent\t[10]not applicable\n");
+    printf("# SiS, Singleton stats:\n# SiS\t[2]id\t[3]allele count\t[4]number of SNPs\t[5]number of transitions\t[6]number of transversions\t[7]number of indels\t[8]repeat-consistent\t[9]repeat-inconsistent\t[10]not applicable\n");
     for (id=0; id<args->nstats; id++)
     {
         stats_t *stats = &args->stats[id];
@@ -1228,6 +1250,24 @@ static void print_stats(args_t *args)
         }
     }
 
+    printf("# DP, Depth distribution\n# DP\t[2]id\t[3]bin\t[4]number of genotypes\t[5]fraction of genotypes (%%)\t[6]number of sites\t[7]fraction of sites (%%)\n");
+    for (id=0; id<args->nstats; id++)
+    {
+        stats_t *stats = &args->stats[id];
+        long unsigned int sum = 0, sum_sites = 0;
+        for (i=0; i<stats->dp.m_vals; i++) { sum += stats->dp.vals[i]; sum_sites += stats->dp_sites.vals[i]; }
+        for (i=0; i<stats->dp.m_vals; i++)
+        {
+            if ( stats->dp.vals[i]==0 && stats->dp_sites.vals[i]==0 ) continue;
+            printf("DP\t%d\t", id);
+            if ( i==0 ) printf("<%d", stats->dp.min);
+            else if ( i+1==stats->dp.m_vals ) printf(">%d", stats->dp.max);
+            else printf("%d", idist_i2bin(&stats->dp,i));
+            printf("\t%"PRId64"\t%f", stats->dp.vals[i], sum ? stats->dp.vals[i]*100./sum : 0);
+            printf("\t%"PRId64"\t%f\n", stats->dp_sites.vals[i], sum_sites ? stats->dp_sites.vals[i]*100./sum_sites : 0);
+        }
+    }
+
     if ( args->files->n_smpl )
     {
         printf("# PSC, Per-sample counts\n# PSC\t[2]id\t[3]sample\t[4]nRefHom\t[5]nNonRefHom\t[6]nHets\t[7]nTransitions\t[8]nTransversions\t[9]nIndels\t[10]average depth\t[11]nSingletons\n");
@@ -1260,22 +1300,6 @@ static void print_stats(args_t *args)
             }
         }
 
-        printf("# DP, Depth distribution\n# DP\t[2]id\t[3]bin\t[4]number of genotypes\t[5]fraction of genotypes (%%)\n");
-        for (id=0; id<args->nstats; id++)
-        {
-            stats_t *stats = &args->stats[id];
-            long unsigned int sum = 0;
-            for (i=0; i<stats->dp.m_vals; i++) { sum += stats->dp.vals[i]; }
-            for (i=0; i<stats->dp.m_vals; i++)
-            {
-                if ( stats->dp.vals[i]==0 ) continue;
-                printf("DP\t%d\t", id);
-                if ( i==0 ) printf("<%d", stats->dp.min);
-                else if ( i+1==stats->dp.m_vals ) printf(">%d", stats->dp.max);
-                else printf("%d", idist_i2bin(&stats->dp,i));
-                printf("\t%"PRId64"\t%f\n", stats->dp.vals[i], stats->dp.vals[i]*100./sum);
-            }
-        }
         #ifdef HWE_STATS
         printf("# HWE\n# HWE\t[2]id\t[3]1st ALT allele frequency\t[4]Number of observations\t[5]25th percentile\t[6]median\t[7]75th percentile\n");
         for (id=0; id<args->nstats; id++)
@@ -1323,7 +1347,8 @@ static void usage(void)
     fprintf(stderr, "\n");
     fprintf(stderr, "About:   Parses VCF or BCF and produces stats which can be plotted using plot-vcfstats.\n");
     fprintf(stderr, "         When two files are given, the program generates separate stats for intersection\n");
-    fprintf(stderr, "         and the complements.\n");
+    fprintf(stderr, "         and the complements. By default only sites are compared, -s/-S must given to include\n");
+    fprintf(stderr, "         also sample columns.\n");
     fprintf(stderr, "Usage:   bcftools stats [options] <A.vcf.gz> [<B.vcf.gz>]\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Options:\n");
@@ -1389,6 +1414,7 @@ int main_vcfstats(int argc, char *argv[])
                 else if ( !strcmp(optarg,"any") ) args->files->collapse |= COLLAPSE_ANY;
                 else if ( !strcmp(optarg,"all") ) args->files->collapse |= COLLAPSE_ANY;
                 else if ( !strcmp(optarg,"some") ) args->files->collapse |= COLLAPSE_SOME;
+                else if ( !strcmp(optarg,"none") ) args->files->collapse = COLLAPSE_NONE;
                 else error("The --collapse string \"%s\" not recognised.\n", optarg);
                 break;
             case 'v': args->verbose_sites = 1; break;

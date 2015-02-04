@@ -32,6 +32,7 @@ DEALINGS IN THE SOFTWARE.  */
 #include <sys/stat.h>
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
+#include "bcftools.h"
 
 #define BCF_LIDX_SHIFT    14
 
@@ -70,12 +71,12 @@ int vcf_index_stats(char *fname, int stats)
     bcf_hdr_t *hdr = bcf_hdr_read(fp);
     if ( !hdr ) { fprintf(stderr,"Could not read the header: %s\n", fname); return 1; }
 
-    if ( fp->type.format==vcf )
+    if ( hts_get_format(fp)->format==vcf )
     {
         tbx = tbx_index_load(fname);
         if ( !tbx ) { fprintf(stderr,"Could not load TBI index: %s\n", fname); return 1; }
     }
-    else if ( fp->type.format==bcf )
+    else if ( hts_get_format(fp)->format==bcf )
     {
         idx = bcf_index_load(fname);
         if ( !idx ) { fprintf(stderr,"Could not load CSI index: %s\n", fname); return 1; }
@@ -144,6 +145,7 @@ int main_vcfindex(int argc, char *argv[])
         {NULL, 0, NULL, 0}
     };
 
+    char *tmp;
     while ((c = getopt_long(argc, argv, "ctfm:sn", loptions, NULL)) >= 0)
     {
         switch (c)
@@ -151,7 +153,10 @@ int main_vcfindex(int argc, char *argv[])
             case 'c': tbi = 0; break;
             case 't': tbi = 1; min_shift = 0; break;
             case 'f': force = 1; break;
-            case 'm': min_shift = atoi(optarg); break;
+            case 'm': 
+                min_shift = strtol(optarg,&tmp,10);
+                if ( *tmp ) error("Could not parse argument: --min-shift %s\n", optarg);
+                break;
             case 's': stats |= 1; break;
             case 'n': stats |= 2; break;
             default: usage();
@@ -178,7 +183,7 @@ int main_vcfindex(int argc, char *argv[])
     if (stats) return vcf_index_stats(fname, stats);
 
     htsFile *fp = hts_open(fname,"r"); 
-    htsFormat type = fp->type;
+    htsFormat type = *hts_get_format(fp);
     hts_close(fp);
 
     if ( (type.format!=bcf && type.format!=vcf) || type.compression!=bgzf )
