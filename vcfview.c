@@ -185,6 +185,7 @@ static void init_data(args_t *args)
                 else if (strcmp(type_list[i], "other") == 0) args->include |= VCF_OTHER;
                 else {
                     fprintf(stderr, "[E::%s] unknown type\n", type_list[i]);
+                    fprintf(stderr, "Accepted types are snps, indels, mnps, other\n");
                     exit(1);
                 }
             }
@@ -198,6 +199,7 @@ static void init_data(args_t *args)
                 else if (strcmp(type_list[i], "other") == 0) args->exclude |= VCF_OTHER;
                 else {
                     fprintf(stderr, "[E::%s] unknown type\n", type_list[i]);
+                    fprintf(stderr, "Accepted types are snps, indels, mnps, other\n");
                     exit(1);
                 }
             }
@@ -666,7 +668,7 @@ int main_vcfview(int argc, char *argv[])
                 else if ( !strcasecmp(optarg,"^hom") ) args->gt_type = GT_NO_HOM;
                 else if ( !strcasecmp(optarg,"^het") ) args->gt_type = GT_NO_HET;
                 else if ( !strcasecmp(optarg,"^miss") ) args->gt_type = GT_NO_MISSING;
-                else error("The argument to -g not recognised. Expected one of hom/het/^hom/^het, got \"%s\".\n", optarg);
+                else error("The argument to -g not recognised. Expected one of hom/het/miss/^hom/^het/^miss, got \"%s\".\n", optarg);
                 break;
             }
             case '?': usage(args);

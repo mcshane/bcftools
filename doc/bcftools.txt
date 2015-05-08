@@ -606,6 +606,9 @@ Create consensus sequence by applying VCF variants to a reference fasta file.
     convert gVCF to VCF, expanding REF blocks into sites. Only sites
     with FILTER set to "PASS" or "." will be expanded.
 
+*-f, --fasta-ref* 'file'::
+    reference sequence in fasta format. Must be indexed with samtools faidx
+
 ==== HAPS/SAMPLE conversion:
 *--hapsample2vcf* 'prefix' or 'haps-file','sample-file'::
     convert from haps/sample format to VCF. The columns of .haps file are
@@ -674,7 +677,7 @@ Create consensus sequence by applying VCF variants to a reference fasta file.
     are not supported yet, missing data can be indicated with "--".
 
 *-f, --fasta-ref* 'file'::
-    reference sequence in fasta format
+    reference sequence in fasta format. Must be indexed with samtools faidx
 
 *-s, --samples* 'LIST'::
     list of sample names. See *<<common_options,Common Options>>*
@@ -1103,10 +1106,18 @@ multiple rows.
     list plugin's options
 
 *-l, --list-plugins*::
-    List all available plugins. If not installed systemwide, set the environment
-    variable LD_LIBRARY_PATH (linux) or DYLD_LIBRARY_PATH (Mac OS X) to include
-    directory where *libhts.so* is located.  The BCFTOOLS_PLUGINS
-    environment variable tells the program which directories to search.
+    List all available plugins.
++
+By default, appropriate system directories are searched for installed plugins.
+    You can override this by setting the BCFTOOLS_PLUGINS environment variable
+    to a colon-separated list of directories to search.
+    If BCFTOOLS_PLUGINS begins with a colon, ends with a colon, or contains
+    adjacent colons, the system directories are also searched at that position
+    in the list of directories.
++
+If htslib is not installed systemwide, set the environment variable
+    LD_LIBRARY_PATH (linux) or DYLD_LIBRARY_PATH (Mac OS X) to include the
+    directory where *libhts.so.1* is located.
 
 *-v, --verbose*::
     print debugging information to debug plugin failure
